@@ -1,4 +1,0 @@
-order_date,sales_region_code,item_code,first_cate_code,second_cate_code,sales_chan_name,item_price,ord_qty
-2015-09-01,104,22069,307,403,offline,1114.0,19
-2015-09-19,104,22069,307,403,offline,1106.0,7
-2015-09-20,104,22069,307,403,offline,1103.0,2
