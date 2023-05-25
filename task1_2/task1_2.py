@@ -1,43 +1,28 @@
 import pandas as pd
-import scipy.stats as stats
-import seaborn as sns
+import statsmodels.api as sm
+from statsmodels.formula.api import ols
+from statsmodels.stats.multicomp import pairwise_tukeyhsd
 import matplotlib.pyplot as plt
 
+# 读取数据
 data = pd.read_csv('../dataset/order_train1.csv')
 
-sales_regions = data['sales_region_code'].unique()
+# 创建多因素方差分析模型
+model = ols('ord_qty ~ sales_region_code', data=data).fit()
 
-result = stats.f_oneway(*[data[data['sales_region_code'] == region]['ord_qty'] for region in sales_regions])
+# 执行多因素方差分析
+anova_table = sm.stats.anova_lm(model, typ=2)
 
-# 打印方差分析结果
-print("F-statistic:", result.statistic)
-print("p-value:", result.pvalue)
+# 打印多因素方差分析结果
+print(anova_table)
 
-# 绘制箱线图
-sns.set()
-plt.figure(figsize=(12, 8))
-sns.boxplot(x='sales_region_code', y='ord_qty', data=data)
-plt.xlabel('sales_region_code')
-plt.ylabel('ord_qty')
-plt.title('Boxplot of ord_qty by sales_region_code')
+# 进行事后多重比较
+posthoc = pairwise_tukeyhsd(data['ord_qty'], data['sales_region_code'])
+
+# 打印事后多重比较结果
+print(posthoc)
+
+# 绘制事后多重比较结果图
+posthoc.plot_simultaneous(ylabel='sales_region_code', xlabel='ord_qty')
 plt.savefig('1.png')
-plt.show()
-
-bins = [0, 50, 200, 500, 20000]
-labels = ['0-50', '50-200', '200-500', '>500']
-data['ord_qty_range'] = pd.cut(data['ord_qty'], bins=bins, labels=labels)
-
-grouped = data.groupby(['sales_region_code', 'ord_qty_range'])
-count = grouped.size().unstack()
-
-count_long = count.stack().reset_index(name='count')
-
-sns.set()
-plt.figure(figsize=(12, 8))
-sns.barplot(x='sales_region_code', y='count', hue='ord_qty_range', data=count_long)
-plt.xlabel('sales_region_code')
-plt.ylabel('count')
-plt.title('Distribution of ord_qty by Sales Region')
-
-plt.savefig('2.png')
 plt.show()
