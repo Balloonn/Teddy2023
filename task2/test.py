@@ -26,49 +26,47 @@ for i in range(len(data_pre)):
     sales_region_code, item_code, first_cate_code, second_cate_code = data_pre.iloc[i, :]
     # print(sales_region_code, item_code, first_cate_code, second_cate_code)
     # print(sales_region_code, item_code, first_cate_code, second_cate_code)
+    filtered_df = df_train[(df_train['item_code'] == item_code) & (df_train['first_cate_code'] == first_cate_code) & (df_train['second_cate_code'] == second_cate_code)]
 
-    if item_code not in df_train['item_code'].unique():
-        filtered_df = df_train[(df_train['sales_region_code'] == sales_region_code) & (df_train['first_cate_code'] == first_cate_code) & (df_train['second_cate_code'] == second_cate_code)]
+    filtered_df_byday = filtered_df.groupby([pd.Grouper(freq='D')])['ord_qty'].mean().reset_index()
+    filtered_df_byday.set_index('order_date',inplace = True)
+    filtered_df_byday = filtered_df_byday.fillna(method='ffill')
+    # print(filtered_df)
+    values = filtered_df_byday['ord_qty'].values.reshape(-1,1)
+    # print(values.shape)
+    # print(values.shape[0])
+    # print(values.shape[1])
 
-        filtered_df_byday = filtered_df.groupby([pd.Grouper(freq='D')])['ord_qty'].mean().reset_index()
-        filtered_df_byday.set_index('order_date',inplace = True)
-        filtered_df_byday = filtered_df_byday.fillna(method='ffill')
-        # print(filtered_df)
-        values = filtered_df_byday['ord_qty'].values.reshape(-1,1)
-        # print(values.shape)
-        # print(values.shape[0])
-        # print(values.shape[1])
+    if values.shape[0]>0:
 
-        if values.shape[0]>0:
+        # values.to_numpy(values)
+        values = values.astype('float32')
+        scaler = MinMaxScaler(feature_range=(0, 1))
+        scaled = scaler.fit_transform(values)
+        train_size = int(len(scaled) * 0.8)
+        test_size = len(scaled) - train_size
+        train, test = scaled[0:train_size,:], scaled[train_size:len(scaled),:]
+        print(test[0][0])
 
-            # values.to_numpy(values)
-            values = values.astype('float32')
-            scaler = MinMaxScaler(feature_range=(0, 1))
-            scaled = scaler.fit_transform(values)
-            train_size = int(len(scaled) * 0.8)
-            test_size = len(scaled) - train_size
-            train, test = scaled[0:train_size,:], scaled[train_size:len(scaled),:]
-            # print(test.shape)
-
-            if test_size > 1:
+        if test_size > 1:
 
                 if test_size>30:
-                    look_back = 30
-                    print('>30', item_code, sales_region_code,first_cate_code, second_cate_code)
-                    X_train, y_train = create_dataset(train, look_back)
-                    X_test, y_test = create_dataset(test, look_back)
+                        look_back = 30
+                        print('>30', item_code, sales_region_code,first_cate_code, second_cate_code)
+                        X_train, y_train = create_dataset(train, look_back)
+                        X_test, y_test = create_dataset(test, look_back)
 
                 if 30 >= test_size > 1:
-                    print('1-30', item_code, sales_region_code,first_cate_code, second_cate_code)
-                    look_back = test_size-1
-                    X_train, y_train = create_dataset(train, look_back)
-                    X_test, y_test = create_dataset(test, look_back)
+                        print('1-30', item_code, sales_region_code,first_cate_code, second_cate_code)
+                        look_back = test_size-1
+                        X_train, y_train = create_dataset(train, look_back)
+                        X_test, y_test = create_dataset(test, look_back)
 
 
                 X_train, y_train = create_dataset(train, look_back)
                 X_test, y_test = create_dataset(test, look_back)
-                # print(X_train.shape)
-                # print(X_test.shape)
+                    # print(X_train.shape)
+                    # print(X_test.shape)
 
                 X_train = np.reshape(X_train, (X_train.shape[0], 1, X_train.shape[1]))
                 X_test = np.reshape(X_test, (X_test.shape[0], 1, X_test.shape[1]))
@@ -114,13 +112,13 @@ for i in range(len(data_pre)):
                     avg_mse = tot_mse / mse.shape[0]
                     print('Test MSE: %.3f' % avg_mse)
 
-                    # # 设置x轴标签的格式
-                    # plt.xticks(rotation=45, ha='right')
-                    # plt.plot(filtered_df_byday.index[-len(y_test):], y_test, label='Actual')
-                    # plt.plot(filtered_df_byday.index[-len(y_pred):], y_pred, label='Predicted')
-                    # plt.title('sales_region_code_' + str(int(sales_region_code)) + ' & ' + 'item_code_' + str(int(item_code))+ '\nfirst_cate_code_' + str(int(first_cate_code)) + ' & ' + 'second_cate_code_' + str(int(second_cate_code)))
-                    # plt.legend()
-                    # plt.show()
+                    # 设置x轴标签的格式
+                    plt.xticks(rotation=45, ha='right')
+                    plt.plot(filtered_df_byday.index[-len(y_test):], y_test, label='Actual')
+                    plt.plot(filtered_df_byday.index[-len(y_pred):], y_pred, label='Predicted')
+                    plt.title('sales_region_code_' + str(int(sales_region_code)) + ' & ' + 'item_code_' + str(int(item_code))+ '\nfirst_cate_code_' + str(int(first_cate_code)) + ' & ' + 'second_cate_code_' + str(int(second_cate_code)))
+                    plt.legend()
+                    plt.show()
 
                     # 预测未来days_to_predict天的订单数量
                     days_to_predict_1_month = 30
@@ -168,7 +166,7 @@ for i in range(len(data_pre)):
                         'prediction_2_month': future_sum_2_month,
                         'prediction_3_month': future_sum_3_month
                     }, ignore_index=True)
-            if test_size == 1:
+        if test_size == 1:
                 # 将销售区域代码、物品代码、一级类别代码、二级类别代码以及未来30天的预测值总和追加到predictions_df
                 predictions_df = predictions_df.append({
                     'sales_region_code': sales_region_code,
@@ -181,7 +179,7 @@ for i in range(len(data_pre)):
                     'prediction_3_month': test[0][0]
                 }, ignore_index=True)
 
-            else:
+        else:
                 predictions_df = predictions_df.append({
                     'sales_region_code': sales_region_code,
                     'item_code': item_code,
