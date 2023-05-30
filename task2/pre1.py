@@ -1,13 +1,17 @@
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = '3'
 import pandas as pd
 import torch
 import torch.nn as nn
 import numpy as np
 import torch.optim as optim
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 from sklearn.preprocessing import MinMaxScaler
 from torch.utils.data import DataLoader, TensorDataset
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from model import LSTMModel
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def create_dataset(dataset, look_back=1):
     dataX, dataY = [], []
@@ -24,7 +28,7 @@ def predict_future(model, x_input, days_to_predict):
         # 预测未来一天的订单数量
         predicted_value = model(x_input.unsqueeze(0))
         # 将预测值添加到future_predictions列表中
-        future_predictions.append(predicted_value[0][0])
+        future_predictions.append(predicted_value[0][0].detach().cpu().numpy())
         # 将x_input中的第一列（订单数量）替换为预测值
         x_input[:, 0] = torch.cat((x_input[1:, 0], predicted_value))
     return future_predictions
@@ -99,28 +103,31 @@ for i in range(len(data_pre)):
                 if len(X_test) > 0:
 
                     input_dim = X_train.shape[2]
-                    hidden_dim1 = 64
-                    hidden_dim2 = 32
+                    hidden_dim1 = 48
+                    hidden_dim2 = 24
                     output_dim = 1
 
-                    model = LSTMModel(input_dim, hidden_dim1, hidden_dim2, output_dim)
+                    model = LSTMModel(input_dim, hidden_dim1, hidden_dim2, output_dim).to(device)
 
                     criterion = nn.MSELoss()
-                    optimizer = optim.Adam(model.parameters(), lr=0.0009)
-                    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=20, verbose=True)
+                    optimizer = optim.Adam(model.parameters(), lr=0.001)
+                    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.15, patience=15, verbose=True)
 
-                    train_dataset = TensorDataset(torch.tensor(X_train, dtype=torch.float32), torch.tensor(y_train.reshape(-1, 1), dtype=torch.float32))
-                    train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=False)
+                    train_dataset = TensorDataset(torch.tensor(X_train, dtype=torch.float32).to(device), torch.tensor(y_train.reshape(-1, 1), dtype=torch.float32).to(device))
+                    train_dataloader = DataLoader(train_dataset, batch_size=128, shuffle=False)
 
                     val_split = 0.1
-                    val_size = int(len(train_dataset) * val_split)
+                    if int(len(train_dataset) * val_split) > 0:
+                        val_size = int(len(train_dataset) * val_split)
+                    else:
+                        val_size = 1
                     train_size = len(train_dataset) - val_size
                     train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size])
 
-                    val_dataloader = DataLoader(val_dataset, batch_size=32, shuffle=False)
+                    val_dataloader = DataLoader(val_dataset, batch_size=128, shuffle=False)
 
-                    epochs = 850
-                    early_stop_patience = 20
+                    epochs = 500
+                    early_stop_patience = 15
                     best_val_loss = float('inf')
                     counter = 0
 
@@ -154,24 +161,34 @@ for i in range(len(data_pre)):
                             print("Early stopping")
                             break
 
-                    X_test_tensor = torch.tensor(X_test, dtype=torch.float32)
-                    y_test_tensor = torch.tensor(y_test, dtype=torch.float32)
+                    X_test_tensor = torch.tensor(X_test, dtype=torch.float32).cuda()
+                    y_test_tensor = torch.tensor(y_test, dtype=torch.float32).cuda()
 
                     with torch.no_grad():
                         y_pred = model(X_test_tensor)
 
-                    y_pred_inv = scaler.inverse_transform(y_pred.numpy())
+                    y_pred_inv = scaler.inverse_transform(y_pred.cpu().numpy())
                     y_test_inv = scaler.inverse_transform(y_test.reshape(-1, 1))
 
                     mse = mean_squared_error(y_test_inv, y_pred_inv)
-                    print('Test MSE: %.3f' % mse)
-                    # # 设置x轴标签的格式
-                    # plt.xticks(rotation=45, ha='right')
-                    # plt.plot(filtered_df_byday.index[-len(y_test):], y_test, label='Actual')
-                    # plt.plot(filtered_df_byday.index[-len(y_pred):], y_pred, label='Predicted')
-                    # plt.title('sales_region_code_' + str(int(sales_region_code)) + ' & ' + 'item_code_' + str(int(item_code))+ '\nfirst_cate_code_' + str(int(first_cate_code)) + ' & ' + 'second_cate_code_' + str(int(second_cate_code)))
-                    # plt.legend()
-                    # plt.show()
+                    mae = mean_absolute_error(y_test_inv, y_pred_inv)
+                    r2 = r2_score(y_test_inv, y_pred_inv)
+                    rmse = np.sqrt(mean_squared_error(y_test_inv, y_pred_inv))
+                    mape = np.mean(np.abs((y_test_inv - y_pred_inv) / y_test_inv))
+                    print('均方误差: %.3f' % mse)
+                    print('平均绝对误差: %.3f' % mae)
+                    print('均方根误差: %.3f' % rmse)
+                    print('平均绝对百分比误差:', mape)
+                    print('R2分数: %.3f' % r2)
+
+                    """
+                    plt.xticks(rotation=45, ha='right')
+                    plt.plot(filtered_df_byday.index[-len(y_test):], y_test, label='Actual')
+                    plt.plot(filtered_df_byday.index[-len(y_pred):], y_pred, label='Predicted')
+                    plt.title('sales_region_code_' + str(int(sales_region_code)) + ' & ' + 'item_code_' + str(int(item_code))+ '\nfirst_cate_code_' + str(int(first_cate_code)) + ' & ' + 'second_cate_code_' + str(int(second_cate_code)))
+                    plt.legend()
+                    plt.show()
+                    """
 
                     # 预测未来days_to_predict天的订单数量
                     days_to_predict_1_month = 30
@@ -195,29 +212,37 @@ for i in range(len(data_pre)):
 
 
                     # 将销售区域代码、物品代码、一级类别代码、二级类别代码以及未来30天的预测值总和追加到predictions_df
-                    predictions_df = predictions_df.append({
+                    predictions_df = predictions_df._append({
                         'sales_region_code': sales_region_code,
                         'item_code': item_code,
                         'first_cate_code': first_cate_code,
                         'second_cate_code': second_cate_code,
-                        'mse': mse,
+                        'mse':mse,
+                        'rmse':rmse,
+                        'mape':mape,
+                        'mae':mae,
+                        'r2':r2,
                         'prediction_1_month': future_sum_1_month,
                         'prediction_2_month': future_sum_2_month,
                         'prediction_3_month': future_sum_3_month
                     }, ignore_index=True)
             if test_size == 1:
                 # 将销售区域代码、物品代码、一级类别代码、二级类别代码以及未来30天的预测值总和追加到predictions_df
-                predictions_df = predictions_df.append({
+                predictions_df = predictions_df._append({
                     'sales_region_code': sales_region_code,
                     'item_code': item_code,
                     'first_cate_code': first_cate_code,
                     'second_cate_code': second_cate_code,
                     'mse': 0,
+                    'rmse':0,
+                    'mape':0,
+                    'mae':0,
+                    'r2':0,
                     'prediction_1_month': test,
                     'prediction_2_month': test,
                     'prediction_3_month': test
                 }, ignore_index=True)
-    break
+    torch.cuda.empty_cache()
 
 # 循环结束后保存predictions_df到新的CSV文件中
 predictions_df.to_csv("predictions-有.csv", index=False, encoding='utf-8')
